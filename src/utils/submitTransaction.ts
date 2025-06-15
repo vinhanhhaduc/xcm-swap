@@ -9,7 +9,7 @@ export const submitTransaction = async (
   tx: Extrinsic,
   signer: Signer,
   injectorAddress: string,
-  onSign?: () => void,
+  onSign?: () => void
 ): Promise<string> => {
   await tx.signAsync(injectorAddress, { signer });
   if (onSign) onSign();
@@ -41,13 +41,19 @@ export const submitTransaction = async (
 export const submitTransactionPapi = async (
   tx: TPapiTransaction,
   signer: PolkadotSigner,
-  onSign?: () => void,
+  onSign?: () => void
 ): Promise<TxFinalizedPayload> => {
   return new Promise((resolve, reject) => {
     return tx.signSubmitAndWatch(signer).subscribe({
       next: (event) => {
         if (event.type === 'signed') {
           if (onSign) onSign();
+        }
+
+        if (event.type === 'broadcasted') {
+          // The transaction is included in a block; treat as success.
+          resolve(event as unknown as TxFinalizedPayload);
+          return;
         }
 
         if (
@@ -66,5 +72,7 @@ export const submitTransactionPapi = async (
         reject(new Error(error));
       },
     });
+    // Safety timeout – resolve error if not finalized within 2 minutes
+    setTimeout(() => reject(new Error('Transaction timeout')), 120_000);
   });
 };

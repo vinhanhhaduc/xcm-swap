@@ -1,4 +1,4 @@
-import { Stepper, Title } from '@mantine/core';
+import { Timeline, Title } from '@mantine/core';
 import type { TRouterEvent, TTransactionType } from '@paraspell/xcm-router';
 import { useEffect, useState } from 'react';
 
@@ -27,45 +27,40 @@ export const TransferStepper = ({ progressInfo }: Props) => {
   useEffect(() => {
     if (!progressInfo?.routerPlan) return;
 
-    const transactionTypes = progressInfo?.routerPlan.map((t) => t.type);
-    const uniqueTypes = Array.from(new Set(transactionTypes));
-
-    const newSteps = uniqueTypes.map((type) => {
-      const [label, description] = getStepInfo(type);
-      return {
-        type,
-        label,
-        description,
-      };
+    const newSteps = progressInfo.routerPlan.map((tx) => {
+      const [label, description] = getStepInfo(tx.type);
+      return { label, description, type: tx.type };
     });
 
     setSteps(newSteps);
   }, [progressInfo?.routerPlan]);
 
   const currentStep = progressInfo?.currentStep ?? 0;
-  const totalSteps = steps.length;
 
   return (
-    <Stepper
-      maw={700}
-      w={totalSteps > 1 ? '100%' : 'auto'}
-      active={progressInfo?.type === 'COMPLETED' ? totalSteps : currentStep}
-    >
+    <Timeline active={currentStep} bulletSize={20} lineWidth={2}>
       {steps.map((step, index) => (
-        <Stepper.Step
+        <Timeline.Item
           key={index}
-          label={step.label}
-          loading={index === currentStep}
-        />
+          title={step.label}
+          bullet={index < currentStep ? '✓' : index + 1}
+          color={index <= currentStep ? 'teal' : 'gray'}
+        >
+          {index === currentStep && progressInfo?.type !== 'COMPLETED' && (
+            <Title order={6} mt={4} c="dimmed">
+              In progress...
+            </Title>
+          )}
+        </Timeline.Item>
       ))}
 
       {progressInfo?.type === 'COMPLETED' && (
-        <Stepper.Completed>
+        <Timeline.Item bullet="✓" color="green">
           <Title order={4} ta="center" mt="md">
             Your transaction was successful!
           </Title>
-        </Stepper.Completed>
+        </Timeline.Item>
       )}
-    </Stepper>
+    </Timeline>
   );
 };

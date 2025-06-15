@@ -1,10 +1,9 @@
 import {
-  Alert,
   Button,
+  Card,
   Center,
+  Divider,
   Group,
-  Menu,
-  MultiSelect,
   Paper,
   rem,
   Select,
@@ -12,6 +11,8 @@ import {
   Text,
   TextInput,
   Tooltip,
+  Stepper,
+  useMantineColorScheme,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
@@ -20,15 +21,9 @@ import type {
   TNodeDotKsmWithRelayChains,
   TNodeWithRelayChains,
 } from '@paraspell/sdk';
-import { NODES_WITH_RELAY_CHAINS } from '@paraspell/sdk';
+import { NODES_WITH_RELAY_CHAINS, isNodeEvm } from '@paraspell/sdk';
 import type { TExchangeInput, TExchangeNode } from '@paraspell/xcm-router';
-import {
-  Icon123,
-  IconArrowsExchange,
-  IconChevronDown,
-  IconCoinFilled,
-  IconInfoCircle,
-} from '@tabler/icons-react';
+import { IconCoinFilled, IconInfoCircle } from '@tabler/icons-react';
 import { ethers } from 'ethers';
 import type { PolkadotSigner } from 'polkadot-api';
 import {
@@ -37,7 +32,7 @@ import {
   type InjectedExtension,
 } from 'polkadot-api/pjs-signer';
 import type { FC, FormEvent } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 
 import { DEFAULT_ADDRESS } from '../../constants';
 import {
@@ -49,9 +44,9 @@ import type { TRouterSubmitType, TWalletAccount } from '../../types';
 import { isValidWalletAddress } from '../../utils';
 import { showErrorNotification } from '../../utils/notifications';
 import AccountSelectModal from '../AccountSelectModal/AccountSelectModal';
-import { XcmApiCheckbox } from '../common/XcmApiCheckbox';
 import { ParachainSelect } from '../ParachainSelect/ParachainSelect';
 import WalletSelectModal from '../WalletSelectModal/WalletSelectModal';
+import BalanceCard from '../common/BalanceCard';
 
 export type TRouterFormValues = {
   from?: TNodeDotKsmWithRelayChains;
@@ -122,9 +117,9 @@ export const XcmRouterForm = ({ onSubmit, loading }: Props) => {
 
   const form = useForm<TRouterFormValues>({
     initialValues: {
-      from: 'Astar',
+      from: undefined,
       exchange: ['HydrationDex'],
-      to: 'Hydration',
+      to: undefined,
       currencyFromOptionId: '',
       currencyToOptionId: '',
       amount: '10',
@@ -155,26 +150,7 @@ export const XcmRouterForm = ({ onSubmit, loading }: Props) => {
   useAutoFillWalletAddress(form, 'recipientAddress');
 
   const { from, to, exchange } = form.getValues();
-
-  const initEvmExtensions = () => {
-    const ext = getInjectedExtensions();
-    if (!ext.length) {
-      showErrorNotification('No wallet extension found, install it to connect');
-      return;
-    }
-    setExtensions(ext);
-    openWalletSelectModal();
-  };
-
-  const onConnectEvmWallet = () => {
-    try {
-      initEvmExtensions();
-    } catch (_e) {
-      showErrorNotification('Failed to connect EVM wallet');
-    }
-  };
-
-  const onConnectWalletClick = () => void connectWallet();
+  const { currencyFromOptionId, currencyToOptionId } = form.values;
 
   const onAccountDisconnect = () => {
     setSelectedAccount(undefined);
@@ -232,8 +208,6 @@ export const XcmRouterForm = ({ onSubmit, loading }: Props) => {
     return exchange;
   };
 
-  const { currencyFromOptionId, currencyToOptionId } = form.values;
-
   const {
     currencyFromOptions,
     currencyFromMap,
@@ -252,6 +226,16 @@ export const XcmRouterForm = ({ onSubmit, loading }: Props) => {
 
   const pairKey = (asset?: { multiLocation?: object; symbol?: string }) =>
     asset?.multiLocation ? JSON.stringify(asset.multiLocation) : asset?.symbol;
+
+  const selectedCurrencyFrom = useMemo(
+    () => currencyFromMap[currencyFromOptionId],
+    [currencyFromMap, currencyFromOptionId]
+  );
+
+  const selectedCurrencyTo = useMemo(
+    () => currencyToMap[currencyToOptionId],
+    [currencyToMap, currencyToOptionId]
+  );
 
   useEffect(() => {
     if (!currencyFromOptionId || !currencyToOptionId) return;
@@ -361,32 +345,66 @@ export const XcmRouterForm = ({ onSubmit, loading }: Props) => {
     isLoadingExtensions,
   } = useWallet();
 
-  const onSubmitInternalBestAmount = () => {
-    const results = [
-      form.validateField('from'),
-      form.validateField('exchange'),
-      form.validateField('to'),
-      form.validateField('currencyFromOptionId'),
-      form.validateField('currencyToOptionId'),
-      form.validateField('amount'),
-    ];
-    const isValid = results.every((result) => !result.hasError);
-    if (isValid) {
-      onSubmitInternal(form.getValues(), undefined, 'getBestAmountOut');
-    }
-  };
+  const { colorScheme } = useMantineColorScheme();
 
-  const onSubmitGetXcmFee = () => {
-    form.validate();
-    if (form.isValid()) {
-      onSubmitInternal(form.getValues(), undefined, 'getXcmFee');
-    }
-  };
+  const glassStyle =
+    colorScheme === 'dark'
+      ? {
+          background: 'rgba(31, 32, 41, 0.6)',
+          border: '1px solid rgba(255,255,255,0.06)',
+        }
+      : {
+          background: 'rgba(255, 255, 255, 0.75)',
+          border: '1px solid rgba(0,0,0,0.05)',
+        };
+
+  const onConnectWalletClick = () => void connectWallet();
+
+  // Filter out EVM-compatible parachains, since the app doesn't support an Ethereum provider.
+  const parachainOptions = useMemo(
+    () =>
+      (NODES_WITH_RELAY_CHAINS as unknown as any[]).filter((opt: any) => {
+        const node = typeof opt === 'string' ? opt : opt.value;
+        return !isNodeEvm(node as TNodeWithRelayChains);
+      }),
+    []
+  );
 
   return (
-    <Paper p="xl" shadow="md">
+    <Paper
+      p="xl"
+      radius="xl"
+      style={{
+        ...glassStyle,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+        backdropFilter: 'blur(10px)',
+      }}
+    >
       <form onSubmit={form.onSubmit(onSubmitInternal)}>
         <Stack gap="lg">
+          <Stepper
+            orientation="horizontal"
+            size="sm"
+            active={from && to ? 1 : 0}
+            color="mainColor.4"
+            allowNextStepsSelect={false}
+            styles={{
+              stepBody: { marginLeft: rem(8) },
+            }}
+          >
+            <Stepper.Step
+              label="Step 1"
+              description="Select chains"
+              completedIcon={<IconCoinFilled size={14} />}
+              color="mainColor.4"
+            />
+            <Stepper.Step
+              label="Step 2"
+              description="Enter details"
+              completedIcon={<IconCoinFilled size={14} />}
+              color="mainColor.4"
+            />
+          </Stepper>
           <WalletSelectModal
             isOpen={walletSelectModalOpened}
             onClose={closeWalletSelectModal}
@@ -403,156 +421,167 @@ export const XcmRouterForm = ({ onSubmit, loading }: Props) => {
             onDisconnect={onAccountDisconnect}
           />
 
-          <ParachainSelect
-            label="Origin"
-            placeholder="Pick value"
-            description="Select the chain you're sending from"
-            data={NODES_WITH_RELAY_CHAINS}
-            allowDeselect={true}
-            required={false}
-            clearable
-            data-testid="select-from"
-            {...form.getInputProps('from')}
-          />
-
-          <Alert icon={<IconArrowsExchange size={16} />} title="Exchange">
-            All swaps are routed through HydrationDex for optimal rates.
-          </Alert>
-
-          <ParachainSelect
-            label="Destination"
-            placeholder="Pick value"
-            data={[...NODES_WITH_RELAY_CHAINS]}
-            data-testid="select-to"
-            description="Select the chain that will receive the swapped assets"
-            allowDeselect={true}
-            required={false}
-            clearable
-            {...form.getInputProps('to')}
-          />
-
-          <Select
-            key={`${from?.toString()}${exchange?.toString()}${to?.toString()}currencyFrom`}
-            label="Currency From"
-            placeholder="Pick value"
-            data={currencyFromOptions}
-            allowDeselect={false}
-            disabled={isFromNotParaToPara}
-            searchable
-            required
-            clearable
-            data-testid="select-currency-from"
-            {...form.getInputProps('currencyFromOptionId')}
-            onClear={() => {
-              form.setFieldValue('currencyFromOptionId', '');
-              form.setFieldValue('currencyToOptionId', '');
-            }}
-          />
-
-          <Select
-            key={`${from?.toString()}${exchange?.toString()}${to?.toString()}${currencyFromOptionId}currencyTo`}
-            label="Currency To"
-            placeholder="Pick value"
-            data={currencyToOptions}
-            allowDeselect={false}
-            disabled={isToNotParaToPara}
-            searchable
-            required
-            data-testid="select-currency-to"
-            {...form.getInputProps('currencyToOptionId')}
-          />
-
-          <TextInput
-            label="Recipient address"
-            description="SS58 or Ethereum address"
-            placeholder="Enter address"
-            required
-            data-testid="input-recipient-address"
-            {...form.getInputProps('recipientAddress')}
-          />
-
-          <TextInput
-            label="Amount"
-            placeholder="0"
-            required
-            data-testid="input-amount"
-            {...form.getInputProps('amount')}
-          />
-
-          <TextInput
-            label="Slippage percentage (%)"
-            placeholder="1"
-            required
-            data-testid="input-slippage-pct"
-            {...form.getInputProps('slippagePct')}
-          />
-
-          <Group justify="space-between">
-            <XcmApiCheckbox
-              {...form.getInputProps('useApi', { type: 'checkbox' })}
+          {/* Chain selectors side-by-side */}
+          <Group gap="md" grow align="flex-end" wrap="wrap">
+            <ParachainSelect
+              label="Origin"
+              placeholder="Select origin chain"
+              description="Step 1: Choose the chain you're sending from"
+              data={parachainOptions}
+              allowDeselect={true}
+              required={false}
+              clearable
+              data-testid="select-from"
+              style={{ flex: 1 }}
+              {...form.getInputProps('from')}
             />
 
-            <Button.Group orientation="vertical">
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={onConnectEvmWallet}
-                rightSection={infoEvmWallet}
-                data-testid="connect-evm-wallet"
-              >
-                {selectedAccount
-                  ? `${selectedAccount?.meta.name} (${selectedAccount?.meta.source})`
-                  : 'Connect EVM wallet'}
-              </Button>
-            </Button.Group>
+            <ParachainSelect
+              label="Destination"
+              placeholder="Select destination chain"
+              data={[...parachainOptions]}
+              data-testid="select-to"
+              description="Step 1: Choose the chain that will receive the swapped assets"
+              allowDeselect={true}
+              required={false}
+              clearable
+              style={{ flex: 1 }}
+              {...form.getInputProps('to')}
+            />
           </Group>
 
-          {selectedAccountPolkadot ? (
-            <Button.Group>
-              <Button
-                type="submit"
-                loading={loading}
-                flex={1}
-                data-testid="submit"
+          {from && to && (
+            <>
+              <Card
+                withBorder
+                radius="lg"
+                p="md"
+                style={{
+                  background:
+                    colorScheme === 'dark'
+                      ? 'rgba(255,255,255,0.04)'
+                      : 'rgba(0,0,0,0.04)',
+                  backdropFilter: 'blur(4px)',
+                }}
               >
-                Submit transaction
-              </Button>
-              <Menu shadow="md" width={200} position="bottom-end">
-                <Menu.Target>
-                  <Button
-                    style={{
-                      borderLeft: '1px solid #ff93c0',
+                <Group gap="xs" grow align="flex-end" wrap="wrap">
+                  <Select
+                    variant="filled"
+                    key={`${from?.toString()}${exchange?.toString()}${to?.toString()}currencyFrom`}
+                    label="Currency From"
+                    placeholder="Pick value"
+                    data={currencyFromOptions}
+                    allowDeselect={false}
+                    disabled={isFromNotParaToPara}
+                    searchable
+                    required
+                    clearable
+                    data-testid="select-currency-from"
+                    {...form.getInputProps('currencyFromOptionId')}
+                    onClear={() => {
+                      form.setFieldValue('currencyFromOptionId', '');
+                      form.setFieldValue('currencyToOptionId', '');
                     }}
-                  >
-                    <IconChevronDown />
-                  </Button>
-                </Menu.Target>
+                  />
 
-                <Menu.Dropdown>
-                  <Menu.Item
-                    leftSection={<Icon123 size={16} />}
-                    onClick={onSubmitInternalBestAmount}
-                  >
-                    Get best amount out
-                  </Menu.Item>
+                  <Select
+                    variant="filled"
+                    key={`${from?.toString()}${exchange?.toString()}${to?.toString()}${currencyFromOptionId}currencyTo`}
+                    label="Currency To"
+                    placeholder="Pick value"
+                    data={currencyToOptions}
+                    allowDeselect={false}
+                    disabled={isToNotParaToPara}
+                    searchable
+                    required
+                    data-testid="select-currency-to"
+                    {...form.getInputProps('currencyToOptionId')}
+                  />
+                </Group>
+              </Card>
 
-                  <Menu.Item
-                    leftSection={<IconCoinFilled size={16} />}
-                    onClick={onSubmitGetXcmFee}
-                  >
-                    Get XCM fees
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
-            </Button.Group>
-          ) : (
-            <Button
-              onClick={onConnectWalletClick}
-              data-testid="btn-connect-wallet"
-              loading={!isInitialized || isLoadingExtensions}
-            >
-              Connect wallet
-            </Button>
+              {/* Basic inputs in a row */}
+              <Group gap="md" grow wrap="wrap" align="flex-end">
+                <TextInput
+                  variant="filled"
+                  label="Recipient address"
+                  placeholder="Enter SS58 or Ethereum address"
+                  required
+                  data-testid="input-recipient-address"
+                  style={{ flex: 2 }}
+                  {...form.getInputProps('recipientAddress')}
+                />
+
+                <TextInput
+                  variant="filled"
+                  label="Amount"
+                  placeholder="0"
+                  required
+                  data-testid="input-amount"
+                  style={{ flex: 1 }}
+                  {...form.getInputProps('amount')}
+                />
+
+                <TextInput
+                  variant="filled"
+                  label="Slippage (%)"
+                  placeholder="1"
+                  required
+                  data-testid="input-slippage-pct"
+                  style={{ maxWidth: 120 }}
+                  {...form.getInputProps('slippagePct')}
+                />
+              </Group>
+
+              {selectedAccountPolkadot ? (
+                <Button
+                  variant="gradient"
+                  gradient={{
+                    from: 'mainColor.4',
+                    to: 'mainColor.8',
+                    deg: 135,
+                  }}
+                  radius="xl"
+                  type="submit"
+                  loading={loading}
+                  fullWidth
+                  data-testid="submit"
+                >
+                  Submit transaction
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={onConnectWalletClick}
+                  data-testid="btn-connect-wallet"
+                  loading={!isInitialized || isLoadingExtensions}
+                >
+                  Connect wallet
+                </Button>
+              )}
+
+              {/* Balances display */}
+              {currencyFromOptionId && currencyToOptionId && (
+                <Group gap="md" justify="center" wrap="wrap">
+                  {from && selectedCurrencyFrom && selectedAccountPolkadot && (
+                    <BalanceCard
+                      title="Origin balance"
+                      node={from as TNodeWithRelayChains}
+                      asset={selectedCurrencyFrom as TAsset}
+                      address={selectedAccountPolkadot.address}
+                    />
+                  )}
+                  {to && selectedCurrencyTo && form.values.recipientAddress && (
+                    <BalanceCard
+                      title="Destination balance"
+                      node={to as TNodeWithRelayChains}
+                      asset={selectedCurrencyTo as TAsset}
+                      address={form.values.recipientAddress}
+                    />
+                  )}
+                </Group>
+              )}
+            </>
           )}
         </Stack>
       </form>

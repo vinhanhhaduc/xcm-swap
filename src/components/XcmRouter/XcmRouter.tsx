@@ -10,8 +10,6 @@ import {
   Text,
   Title,
   useMantineColorScheme,
-  Anchor,
-  Alert,
 } from '@mantine/core';
 import { useDisclosure, useScrollIntoView } from '@mantine/hooks';
 import {
@@ -51,6 +49,7 @@ import {
 import { ErrorAlert } from '../common/ErrorAlert';
 import { OutputAlert } from '../common/OutputAlert';
 import { TransferStepper } from './TransferStepper';
+import { SuccessStepper } from './SuccessStepper';
 
 function getExplorerUrl(destination: string, txHash: string) {
   switch (destination.toLowerCase()) {
@@ -240,7 +239,7 @@ export const XcmRouter = () => {
       evmSigner,
     } = formValues;
 
-    await RouterBuilder()
+    const buildResult = await RouterBuilder()
       .from(from)
       .exchange(exchange)
       .to(to)
@@ -272,6 +271,11 @@ export const XcmRouter = () => {
       .slippagePct(slippagePct)
       .onStatusChange(onStatusChange)
       .build();
+
+    // Mark as completed if builder resolves without throwing
+    onStatusChange({ type: 'COMPLETED' } as unknown as TRouterEvent);
+
+    return buildResult;
   };
 
   const submitUsingApi = async (
@@ -588,7 +592,18 @@ export const XcmRouter = () => {
       if (e instanceof Error) {
         console.error(e);
         showErrorNotification(e.message, notifId);
-        setError(e);
+        // Provide a clearer hint when the transaction is rejected because the payer
+        // cannot cover the fees (SUBSTRATE\'s InvalidTransaction::Payment).
+        if (e.message.includes('Invalid') && e.message.includes('Payment')) {
+          setError(
+            new Error(
+              'The account does not have enough native tokens to pay for transaction fees. ' +
+                'Make sure you keep some balance on the sender account for fees and the existential deposit.'
+            )
+          );
+        } else {
+          setError(e);
+        }
         openAlert();
         setShowStepper(false);
       }
@@ -622,7 +637,8 @@ export const XcmRouter = () => {
   return (
     <Container px="xl" pb="128">
       <Stack gap="xl">
-        <Stack w="100%" maw={460} mx="auto" gap="0">
+        {/* Swap form displayed directly */}
+        <Stack w="100%" maw={520} mx="auto" gap="0">
           <Box px="xl" pb="xl">
             <Center>
               <Image src="/og-logo.png" fit="contain" w={220} p={8} />
@@ -667,18 +683,15 @@ export const XcmRouter = () => {
           {outputAlertOpened && output && (
             <OutputAlert output={output} onClose={onOutputAlertCloseClick} />
           )}
+
           {successTxHash && successTxDestination && (
-            <Alert title="Transaction Success" color="green" mt="md">
-              Transaction submitted! Hash:
-              <br />
-              <Anchor
-                href={getExplorerUrl(successTxDestination, successTxHash)}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {successTxHash}
-              </Anchor>
-            </Alert>
+            <Center mt="md">
+              <SuccessStepper
+                txHash={successTxHash}
+                destination={successTxDestination}
+                getExplorerUrl={getExplorerUrl}
+              />
+            </Center>
           )}
         </Box>
       </Stack>
